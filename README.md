@@ -29,7 +29,7 @@ Commands are not deployed on startup. After adding or changing a command:
 ```bash
 npx tsx scripts/deploy-commands.ts
 # or in Docker:
-docker compose exec sonus-bot npx tsx scripts/deploy-commands.ts
+docker compose exec -T sonus npx tsx scripts/deploy-commands.ts
 ```
 
 `npx tsx scripts/clear-commands.ts` removes all registered commands.
