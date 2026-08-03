@@ -20,6 +20,9 @@ data/quotes/*.json
 !data/quotes/8ball.json
 data/state.json
 
+# machine-specific compose overrides (e.g. reverse-proxy wiring on the host)
+docker-compose.override.yml
+
 # dotenv environment variable files
 .env
 .env.development.local
