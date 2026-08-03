@@ -1,0 +1,13 @@
+diff --git a/node_modules/distube/dist/index.js b/node_modules/distube/dist/index.js
+index b879795..e1bef42 100644
+--- a/node_modules/distube/dist/index.js
++++ b/node_modules/distube/dist/index.js
+@@ -301,7 +301,7 @@ var DisTubeVoice = class extends import_tiny_typed_emitter.TypedEmitter {
+     this.id = channel.guildId;
+     this.channel = channel;
+     this.voices.add(this.id, this);
+-    this.audioPlayer = (0, import_voice.createAudioPlayer)().on(import_voice.AudioPlayerStatus.Idle, (oldState) => {
++    this.audioPlayer = (0, import_voice.createAudioPlayer)({ behaviors: { maxMissedFrames: 250 } }).on(import_voice.AudioPlayerStatus.Idle, (oldState) => {
+       if (oldState.status !== import_voice.AudioPlayerStatus.Idle) this.emit("finish");
+     }).on("error", (error) => {
+       if (this.emittedError) return;

@@ -1,0 +1,847 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sonus — dashboard</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --page: #0d0d0d;
+        --surface: #1a1a19;
+        --ink: #ffffff;
+        --ink-2: #c3c2b7;
+        --muted: #898781;
+        --border: rgba(255, 255, 255, 0.1);
+        --accent: #3987e5;
+        --accent-track: rgba(57, 135, 229, 0.22);
+        --good: #0ca30c;
+        --warning: #fab219;
+        --critical: #d03b3b;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          color-scheme: light;
+          --page: #f9f9f7;
+          --surface: #fcfcfb;
+          --ink: #0b0b0b;
+          --ink-2: #52514e;
+          --muted: #898781;
+          --border: rgba(11, 11, 11, 0.1);
+          --accent: #2a78d6;
+          --accent-track: rgba(42, 120, 214, 0.18);
+        }
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      body {
+        background: var(--page);
+        color: var(--ink);
+        font:
+          14px/1.5 system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+        padding: 24px 16px 64px;
+      }
+      main {
+        max-width: 1080px;
+        margin: 0 auto;
+      }
+
+      header {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+      }
+      header h1 {
+        font-size: 20px;
+        font-weight: 600;
+      }
+      #conn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--ink-2);
+        font-size: 13px;
+      }
+      #conn .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--good);
+      }
+      #conn.down .dot {
+        background: var(--critical);
+      }
+      header .spacer {
+        flex: 1;
+      }
+      header .meta {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      h2 {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin: 28px 0 10px;
+      }
+
+      .tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 10px;
+      }
+      .tile {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px 14px;
+      }
+      .tile .label {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .tile .value {
+        font-size: 22px;
+        font-weight: 600;
+        margin-top: 2px;
+      }
+      .tile .sub {
+        font-size: 12px;
+        color: var(--ink-2);
+      }
+      .tile .sub.warn {
+        color: var(--warning);
+      }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+
+      .feature-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+      }
+      .feature-row + .feature-row {
+        border-top: 1px solid var(--border);
+      }
+      .feature-row .name {
+        flex: 1;
+      }
+      .feature-row .state {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .switch {
+        position: relative;
+        width: 36px;
+        height: 20px;
+        border-radius: 10px;
+        border: none;
+        cursor: pointer;
+        background: var(--border);
+        transition: background 0.15s;
+        flex: none;
+      }
+      .switch::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--ink);
+        transition: left 0.15s;
+      }
+      .switch.on {
+        background: var(--good);
+      }
+      .switch.on::after {
+        left: 18px;
+        background: #fff;
+      }
+      .switch:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 14px;
+        font-size: 13px;
+      }
+      th {
+        color: var(--muted);
+        font-weight: 500;
+        border-bottom: 1px solid var(--border);
+      }
+      td {
+        border-bottom: 1px solid var(--border);
+        color: var(--ink-2);
+        font-variant-numeric: tabular-nums;
+      }
+      td:first-child {
+        color: var(--ink);
+      }
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      .guilds {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+      .guild {
+        padding: 0;
+        overflow: hidden;
+      }
+      .guild-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px;
+        cursor: pointer;
+      }
+      .guild-head:hover {
+        background: var(--border);
+      }
+      .guild-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        flex: none;
+        background: var(--accent-track);
+        color: var(--accent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+      }
+      .guild-icon img {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: block;
+      }
+      .guild-title {
+        flex: 1;
+        min-width: 0;
+      }
+      .guild-title .gname {
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .guild-title .gsub {
+        font-size: 12px;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .badges {
+        display: flex;
+        gap: 4px 6px;
+        flex: 0 1 auto;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        /* Never crush the guild name — with many badges, wrap them instead. */
+        max-width: 50%;
+      }
+      .badge {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--ink-2);
+        white-space: nowrap;
+      }
+      .badge.live {
+        border-color: var(--good);
+        color: var(--good);
+      }
+      .badge.paused {
+        border-color: var(--warning);
+        color: var(--warning);
+      }
+
+      .guild-body {
+        border-top: 1px solid var(--border);
+        padding: 12px 14px;
+        display: grid;
+        gap: 14px;
+      }
+      /* Grid items default to min-width auto, letting nowrap text force the
+         card wider than its column — allow everything inside to shrink. */
+      .guild-body > *,
+      .gstats > * {
+        min-width: 0;
+      }
+      /* Stats block: playback on the left, guild settings on the right. */
+      .gstats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px 24px;
+      }
+      @media (max-width: 720px) {
+        .gstats {
+          grid-template-columns: 1fr;
+        }
+      }
+      .gplayback {
+        display: grid;
+        gap: 10px;
+        align-content: start;
+      }
+      .gsettings {
+        display: grid;
+        gap: 6px;
+        align-content: start;
+      }
+      .kv {
+        display: flex;
+        gap: 8px;
+        font-size: 13px;
+      }
+      .kv .k {
+        color: var(--muted);
+        flex: none;
+        width: 130px;
+      }
+      .kv .v {
+        color: var(--ink-2);
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .now {
+        display: grid;
+        gap: 6px;
+      }
+      .now .song {
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+      .meter {
+        height: 6px;
+        border-radius: 3px;
+        background: var(--accent-track);
+        overflow: hidden;
+      }
+      .meter .fill {
+        height: 100%;
+        border-radius: 3px;
+        background: var(--accent);
+        transition: width 2s linear;
+      }
+      .now .times {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .queue-head {
+        font-size: 12px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .queue-list {
+        display: grid;
+        gap: 2px;
+        font-size: 13px;
+        color: var(--ink-2);
+      }
+      .queue-list .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        padding: 3px 6px;
+        border-radius: 6px;
+      }
+      .queue-list .row[draggable] {
+        cursor: grab;
+      }
+      .queue-list .row[draggable]:hover {
+        background: var(--border);
+      }
+      .queue-list .row.dragging {
+        opacity: 0.4;
+      }
+      /* Drop position indicator: a 2px accent edge above or below the row. */
+      .queue-list .row.drop-above {
+        box-shadow: inset 0 2px 0 var(--accent);
+      }
+      .queue-list .row.drop-below {
+        box-shadow: inset 0 -2px 0 var(--accent);
+      }
+      .queue-list .handle {
+        color: var(--muted);
+        flex: none;
+        user-select: none;
+        letter-spacing: -2px;
+      }
+      .queue-list .n {
+        color: var(--muted);
+        flex: none;
+        width: 24px;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .queue-list .t {
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1;
+      }
+      .queue-list .d {
+        color: var(--muted);
+        flex: none;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .controls {
+        display: flex;
+        gap: 8px;
+      }
+      .btn {
+        font: inherit;
+        font-size: 13px;
+        padding: 5px 12px;
+        border-radius: 7px;
+        cursor: pointer;
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--ink);
+      }
+      .btn:hover {
+        background: var(--border);
+      }
+      .btn.danger {
+        color: var(--critical);
+        border-color: var(--critical);
+      }
+
+      .empty {
+        color: var(--muted);
+        font-size: 13px;
+        padding: 12px 14px;
+      }
+      #error {
+        display: none;
+        margin-bottom: 16px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--critical);
+        color: var(--critical);
+        font-size: 13px;
+      }
+      body.down #error {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>sonus</h1>
+        <span id="conn"><span class="dot"></span><span id="conn-text">connecting…</span></span>
+        <span class="spacer"></span>
+        <span class="meta" id="meta"></span>
+      </header>
+
+      <div id="error">Can't reach the bot — retrying…</div>
+
+      <h2>Overview</h2>
+      <div class="tiles" id="tiles"></div>
+
+      <h2>Features</h2>
+      <div class="card" id="features"></div>
+
+      <h2>Guilds</h2>
+      <div class="guilds" id="guilds"></div>
+
+      <h2>Cron jobs</h2>
+      <div class="card" id="cron"></div>
+    </main>
+
+    <script>
+      const expanded = new Set();
+      let latestGuilds = [];
+
+      const esc = (s) =>
+        String(s).replace(
+          /[&<>"']/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+
+      function fmtDuration(totalSeconds) {
+        const s = Math.max(0, Math.floor(totalSeconds));
+        const d = Math.floor(s / 86400),
+          h = Math.floor((s % 86400) / 3600),
+          m = Math.floor((s % 3600) / 60);
+        if (d > 0) return `${d}d ${h}h`;
+        if (h > 0) return `${h}h ${m}m`;
+        if (m > 0) return `${m}m ${s % 60}s`;
+        return `${s % 60}s`;
+      }
+
+      function fmtClock(totalSeconds) {
+        const s = Math.max(0, Math.floor(totalSeconds));
+        const h = Math.floor(s / 3600),
+          m = Math.floor((s % 3600) / 60),
+          sec = s % 60;
+        const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
+        return (h > 0 ? `${h}:${mm}:` : `${mm}:`) + String(sec).padStart(2, "0");
+      }
+
+      function fmtRelative(ts) {
+        if (!ts) return "never";
+        const diff = ts - Date.now();
+        const abs = fmtDuration(Math.abs(diff) / 1000);
+        return diff <= 0 ? `${abs} ago` : `in ${abs}`;
+      }
+
+      function fmtBytes(bytes) {
+        const mb = bytes / 1024 / 1024;
+        return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
+      }
+
+      async function api(path, options) {
+        const res = await fetch(path, options);
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+        return data;
+      }
+
+      function tile(label, value, sub, subWarn) {
+        return `<div class="tile">
+      <div class="label">${esc(label)}</div>
+      <div class="value">${esc(value)}</div>
+      ${sub ? `<div class="sub${subWarn ? " warn" : ""}">${esc(sub)}</div>` : ""}
+    </div>`;
+      }
+
+      function renderTiles(s) {
+        const m = s.music;
+        document.getElementById("tiles").innerHTML = [
+          tile("Uptime", fmtDuration(s.runtime.uptimeSeconds)),
+          tile("Guilds", s.runtime.guilds),
+          tile("Users seen", s.runtime.users),
+          tile("Ping", `${s.runtime.pingMs} ms`),
+          tile("Memory (RSS)", fmtBytes(s.runtime.rssBytes), `heap ${fmtBytes(s.runtime.heapUsedBytes)}`),
+          tile("Active voice", m.activeVoice, `${m.queuedSongs} queued song${m.queuedSongs === 1 ? "" : "s"}`),
+          tile("BG playlists", `${m.backgroundEnabled}/${m.backgroundConfigured}`, "enabled / configured"),
+          tile("Reminders", s.storage.pendingReminders, "pending"),
+          tile(
+            "yt-dlp",
+            m.ytdlp.current,
+            m.ytdlp.upToDate ? "up to date" : `${m.ytdlp.latest} available`,
+            !m.ytdlp.upToDate,
+          ),
+          tile("Node", s.runtime.nodeVersion),
+        ].join("");
+
+        document.getElementById("meta").textContent =
+          `${s.features.quoteCommands} quote files · ${s.storage.usersWithTimezone} users w/ timezone · model ${s.features.ollamaModel ?? "—"}`;
+      }
+
+      function renderFeatures(s) {
+        document.getElementById("features").innerHTML = s.features.features
+          .map((f) => {
+            const state = !f.configured ? "not configured" : f.enabled ? "on" : "off";
+            return `<div class="feature-row">
+          <span>${esc(f.emoji)}</span>
+          <span class="name">${esc(f.name)}</span>
+          <span class="state">${state}</span>
+          <button class="switch${f.enabled ? " on" : ""}" ${f.configured ? "" : "disabled"}
+            data-feature="${esc(f.key)}" data-enabled="${f.enabled}"
+            aria-label="Toggle ${esc(f.name)}"></button>
+        </div>`;
+          })
+          .join("");
+      }
+
+      function renderCron(s) {
+        if (!s.cron.length) {
+          document.getElementById("cron").innerHTML = `<div class="empty">No cron jobs registered.</div>`;
+          return;
+        }
+        const rows = s.cron
+          .map(
+            (j) => `<tr>
+          <td>${esc(j.name)}</td>
+          <td>${esc(fmtDuration(j.interval / 1000))}</td>
+          <td>${esc(fmtRelative(j.lastRun))}</td>
+          <td>${esc(fmtRelative(j.nextRun))}</td>
+        </tr>`,
+          )
+          .join("");
+        document.getElementById("cron").innerHTML =
+          `<table><thead><tr><th>Job</th><th>Interval</th><th>Last run</th><th>Next run</th></tr></thead><tbody>${rows}</tbody></table>`;
+      }
+
+      function guildBadges(g) {
+        const badges = [];
+        if (g.playing)
+          badges.push(
+            `<span class="badge ${g.paused ? "paused" : "live"}">${g.paused ? "⏸ paused" : "♪ playing"}</span>`,
+          );
+        if (g.listening) badges.push(`<span class="badge live">🎤 listening</span>`);
+        if (g.settings.backgroundEnabled) badges.push(`<span class="badge">bg playlist</span>`);
+        if (g.settings.voicelogChannel) badges.push(`<span class="badge">voicelog</span>`);
+        return badges.join("");
+      }
+
+      function guildBody(d) {
+        // Left column: now playing + transport controls.
+        let playback;
+        if (d.queue && d.queue.songs.length) {
+          const now = d.queue.songs[0];
+          const pct =
+            now.durationSeconds > 0 ? Math.min(100, (d.queue.currentTimeSeconds / now.durationSeconds) * 100) : 0;
+          playback = `<div class="now">
+        <div class="song">${esc(now.name)}</div>
+        <div class="meter"><div class="fill" style="width:${pct.toFixed(1)}%"></div></div>
+        <div class="times"><span>${esc(fmtClock(d.queue.currentTimeSeconds))}</span><span>${esc(fmtClock(now.durationSeconds))}</span></div>
+      </div>
+      <div class="controls">
+        <button class="btn" data-guild="${esc(d.id)}" data-action="${d.queue.paused ? "resume" : "pause"}">${d.queue.paused ? "Resume" : "Pause"}</button>
+        <button class="btn" data-guild="${esc(d.id)}" data-action="skip">Skip</button>
+        <button class="btn danger" data-guild="${esc(d.id)}" data-action="stop">Stop</button>
+      </div>`;
+        } else {
+          playback = `<div class="empty" style="padding:0">Nothing playing.</div>`;
+        }
+
+        // Right column: guild settings.
+        const kv = (k, v) => `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`;
+        const ch = (ref) =>
+          ref ? esc(ref.name ? `#${ref.name}` : ref.id) : `<span style="color:var(--muted)">not set</span>`;
+        const settings =
+          kv(
+            "Voice channel",
+            d.queue?.voiceChannel ? esc(d.queue.voiceChannel) : `<span style="color:var(--muted)">—</span>`,
+          ) +
+          kv("Music channel", ch(d.settings.musicChannel)) +
+          kv("Voicelog channel", ch(d.settings.voicelogChannel)) +
+          kv(
+            "Background playlist",
+            d.background
+              ? `${esc(d.background.playlistName)} <span style="color:var(--muted)">(${d.background.cachedSongs} songs${d.background.active ? ", active" : ""})</span>`
+              : d.settings.backgroundPlaylist
+                ? `<span style="color:var(--muted)">configured, not cached</span>`
+                : `<span style="color:var(--muted)">not set</span>`,
+          );
+
+        // Full queue below the stats; rows are draggable to reorder.
+        let queueHtml = "";
+        if (d.queue && d.queue.songs.length > 1) {
+          const rows = d.queue.songs
+            .slice(1)
+            .map((song, i) => {
+              const index = i + 1; // absolute queue index (0 = now playing)
+              return `<div class="row" draggable="true" data-guild="${esc(d.id)}" data-index="${index}" data-name="${esc(song.name)}">
+              <span class="handle">⋮⋮</span>
+              <span class="n">${index}</span>
+              <span class="t">${esc(song.name)}${song.requestedBy ? ` <span style="color:var(--muted)">· ${esc(song.requestedBy)}</span>` : ""}</span>
+              <span class="d">${esc(fmtClock(song.durationSeconds))}</span>
+            </div>`;
+            })
+            .join("");
+          queueHtml = `<div class="queue-head">Up next — ${d.queue.songs.length - 1} song${d.queue.songs.length === 2 ? "" : "s"}</div>
+        <div class="queue-list">${rows}</div>`;
+        }
+
+        return `<div class="guild-body">
+        <div class="gstats">
+          <div class="gplayback">${playback}</div>
+          <div class="gsettings">${settings}</div>
+        </div>
+        ${queueHtml}
+      </div>`;
+      }
+
+      function renderGuilds() {
+        const container = document.getElementById("guilds");
+        if (!latestGuilds.length) {
+          container.innerHTML = `<div class="card"><div class="empty">Not in any guilds.</div></div>`;
+          return;
+        }
+        container.innerHTML = latestGuilds
+          .map((g) => {
+            const icon = g.iconUrl ? `<img src="${esc(g.iconUrl)}" alt="" />` : esc((g.name[0] ?? "?").toUpperCase());
+            const sub = [
+              `${g.memberCount} members`,
+              g.playing ? `${g.queueLength} in queue` : null,
+              g.nowPlaying ? `♪ ${g.nowPlaying}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return `<div class="card guild" data-id="${esc(g.id)}">
+          <div class="guild-head" data-toggle="${esc(g.id)}">
+            <div class="guild-icon">${icon}</div>
+            <div class="guild-title">
+              <div class="gname">${esc(g.name)}</div>
+              <div class="gsub">${esc(sub)}</div>
+            </div>
+            <div class="badges">${guildBadges(g)}</div>
+          </div>
+          ${expanded.has(g.id) ? guildBody(g) : ""}
+        </div>`;
+          })
+          .join("");
+      }
+
+      function setConnected(ok) {
+        document.getElementById("conn").classList.toggle("down", !ok);
+        document.body.classList.toggle("down", !ok);
+        document.getElementById("conn-text").textContent = ok ? "online" : "offline";
+      }
+
+      function render(snapshot) {
+        latestGuilds = snapshot.guilds;
+        renderTiles(snapshot.status);
+        renderFeatures(snapshot.status);
+        renderCron(snapshot.status);
+        renderGuilds();
+      }
+
+      document.addEventListener("click", async (event) => {
+        const el = event.target.closest("[data-toggle], [data-feature], [data-action]");
+        if (!el) return;
+
+        if (el.dataset.toggle) {
+          const id = el.dataset.toggle;
+          if (expanded.has(id)) expanded.delete(id);
+          else expanded.add(id);
+          renderGuilds();
+          return;
+        }
+
+        // Mutations don't re-render here — the server pushes the new state
+        // to the event stream immediately after every successful POST.
+        if (el.dataset.feature) {
+          el.disabled = true;
+          api(`/api/features/${el.dataset.feature}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled: el.dataset.enabled !== "true" }),
+          }).catch(() => {
+            el.disabled = false;
+          });
+          return;
+        }
+
+        if (el.dataset.action) {
+          el.disabled = true;
+          api(`/api/guilds/${el.dataset.guild}/music/${el.dataset.action}`, { method: "POST" }).catch(() => {
+            el.disabled = false;
+          });
+        }
+      });
+
+      // --- Queue drag & drop (HTML5 DnD, mouse only) ---
+      // While a drag is in flight, live re-renders are stashed instead of
+      // applied — replacing the DOM mid-drag would kill the drag.
+      let drag = null;
+      let pendingSnapshot = null;
+
+      const clearDropMarkers = () =>
+        document
+          .querySelectorAll(".drop-above, .drop-below")
+          .forEach((el) => el.classList.remove("drop-above", "drop-below"));
+
+      const dropTarget = (event) => {
+        const row = event.target.closest(".queue-list .row");
+        return row && drag && row.dataset.guild === drag.guildId ? row : null;
+      };
+
+      document.addEventListener("dragstart", (event) => {
+        const row = event.target.closest(".queue-list .row");
+        if (!row) return;
+        drag = { guildId: row.dataset.guild, from: Number(row.dataset.index), name: row.dataset.name };
+        row.classList.add("dragging");
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", row.dataset.name);
+      });
+
+      document.addEventListener("dragover", (event) => {
+        const row = dropTarget(event);
+        if (!row) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        clearDropMarkers();
+        const rect = row.getBoundingClientRect();
+        row.classList.add(event.clientY < rect.top + rect.height / 2 ? "drop-above" : "drop-below");
+      });
+
+      document.addEventListener("drop", (event) => {
+        const row = dropTarget(event);
+        if (!row) return;
+        event.preventDefault();
+        const rect = row.getBoundingClientRect();
+        const below = event.clientY >= rect.top + rect.height / 2;
+        // Insertion point → final index after the dragged row is removed.
+        const insertAt = Number(row.dataset.index) + (below ? 1 : 0);
+        const to = insertAt > drag.from ? insertAt - 1 : insertAt;
+        if (to !== drag.from) {
+          api(`/api/guilds/${drag.guildId}/music/move`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ from: drag.from, to, name: drag.name }),
+          }).catch(() => {});
+        }
+      });
+
+      document.addEventListener("dragend", () => {
+        drag = null;
+        clearDropMarkers();
+        document.querySelectorAll(".row.dragging").forEach((el) => el.classList.remove("dragging"));
+        if (pendingSnapshot) {
+          const snapshot = pendingSnapshot;
+          pendingSnapshot = null;
+          render(snapshot);
+        }
+      });
+
+      // Live updates over SSE; EventSource reconnects on its own after drops.
+      const events = new EventSource("/api/events");
+      events.onmessage = (event) => {
+        setConnected(true);
+        const snapshot = JSON.parse(event.data);
+        if (drag) {
+          pendingSnapshot = snapshot;
+          return;
+        }
+        render(snapshot);
+      };
+      events.onerror = () => setConnected(false);
+    </script>
+  </body>
+</html>

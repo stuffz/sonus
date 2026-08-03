@@ -1,0 +1,24 @@
+name: sonus
+
+services:
+  sonus:
+    build: .
+    container_name: sonus-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    # Dashboard + JSON API + health. No auth — keep this LAN-only.
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => process.exit(r.ok ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # Reaches the local AI backends (llama.cpp :9068, Whisper :9069, TTS :9070)
+    # running on the host via the host gateway.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
