@@ -1,5 +1,5 @@
 diff --git a/node_modules/distube/dist/index.js b/node_modules/distube/dist/index.js
-index b879795..e1bef42 100644
+index b879795..6c49bee 100644
 --- a/node_modules/distube/dist/index.js
 +++ b/node_modules/distube/dist/index.js
 @@ -301,7 +301,7 @@ var DisTubeVoice = class extends import_tiny_typed_emitter.TypedEmitter {
@@ -11,3 +11,126 @@ index b879795..e1bef42 100644
        if (oldState.status !== import_voice.AudioPlayerStatus.Idle) this.emit("finish");
      }).on("error", (error) => {
        if (this.emittedError) return;
+@@ -2044,7 +2044,17 @@ var QueueManager = class extends GuildIdManager {
+       await this.playSong(queue);
+       return;
+     }
++    // A stream that dies before playback also drives the audio player Idle, so
++    // "finish" fires alongside "error". Ignore that stray finish and let the retry
++    // in #handlePlayingError own the recovery; otherwise the queue is torn down
++    // mid-retry. Upstream never hit this because it always shifted and stopped.
++    if (queue._streamRetrying || (queue._streamRetryCount > 0 && (queue.currentTime ?? 0) < 5)) {
++      this.debug(`[QueueManager] Ignoring finish from a failed stream: ${queue.id}`);
++      return;
++    }
+     this.debug(`[QueueManager] Handling song finish: ${queue.id}`);
++    queue._streamRetrySong = void 0;
++    queue._streamRetryCount = 0;
+     const song = queue.songs[0];
+     this.emit("finishSong" /* FINISH_SONG */, queue, song);
+     await queue._taskQueue.queuing();
+@@ -2091,6 +2101,36 @@ var QueueManager = class extends GuildIdManager {
+    * @param error - error
+    */
+   async #handlePlayingError(queue, error) {
++    // Transient stream failure: YouTube hands out media URLs bound to a server-side
++    // experiment bucket; URLs in the bad bucket reject ffmpeg's open-ended range
++    // request with HTTP 403 before a single byte of audio is decoded. The bucket is
++    // re-rolled on every extraction, so dropping the cached URL and re-resolving is
++    // the recovery. Only retry when nothing actually played, so a mid-song failure
++    // still falls through to the normal skip-to-next behaviour.
++    const failing = queue.songs[0];
++    if (failing && error?.errorCode === "FFMPEG_EXITED" && !queue.stopped && (queue.currentTime ?? 0) < 5) {
++      if (queue._streamRetrySong !== failing) {
++        queue._streamRetrySong = failing;
++        queue._streamRetryCount = 0;
++      }
++      if (queue._streamRetryCount < 5) {
++        queue._streamRetryCount++;
++        this.debug(`[${queue.id}] Stream died before playback (attempt ${queue._streamRetryCount}/5), re-resolving: ${failing}`);
++        if (failing.stream?.playFromSource) failing.stream.url = void 0;
++        else if (failing.stream?.song?.stream) failing.stream.song.stream.url = void 0;
++        queue._beginTime = 0;
++        // Held across the replay so the dead stream's "finish" is ignored rather
++        // than tearing the queue down underneath us (see handleSongFinish).
++        queue._streamRetrying = true;
++        try {
++          await this.playSong(queue, false);
++        } finally {
++          queue._streamRetrying = false;
++        }
++        return;
++      }
++      this.debug(`[${queue.id}] Stream failed ${queue._streamRetryCount} times, giving up: ${failing}`);
++    }
+     const song = queue.songs.shift();
+     try {
+       error.name = "PlayingError";
+diff --git a/node_modules/distube/dist/index.mjs b/node_modules/distube/dist/index.mjs
+index ca8d7b0..f43a860 100644
+--- a/node_modules/distube/dist/index.mjs
++++ b/node_modules/distube/dist/index.mjs
+@@ -219,7 +219,7 @@ var DisTubeVoice = class extends TypedEmitter {
+     this.id = channel.guildId;
+     this.channel = channel;
+     this.voices.add(this.id, this);
+-    this.audioPlayer = createAudioPlayer().on(AudioPlayerStatus.Idle, (oldState) => {
++    this.audioPlayer = createAudioPlayer({ behaviors: { maxMissedFrames: 250 } }).on(AudioPlayerStatus.Idle, (oldState) => {
+       if (oldState.status !== AudioPlayerStatus.Idle) this.emit("finish");
+     }).on("error", (error) => {
+       if (this.emittedError) return;
+@@ -1962,7 +1962,17 @@ var QueueManager = class extends GuildIdManager {
+       await this.playSong(queue);
+       return;
+     }
++    // A stream that dies before playback also drives the audio player Idle, so
++    // "finish" fires alongside "error". Ignore that stray finish and let the retry
++    // in #handlePlayingError own the recovery; otherwise the queue is torn down
++    // mid-retry. Upstream never hit this because it always shifted and stopped.
++    if (queue._streamRetrying || (queue._streamRetryCount > 0 && (queue.currentTime ?? 0) < 5)) {
++      this.debug(`[QueueManager] Ignoring finish from a failed stream: ${queue.id}`);
++      return;
++    }
+     this.debug(`[QueueManager] Handling song finish: ${queue.id}`);
++    queue._streamRetrySong = void 0;
++    queue._streamRetryCount = 0;
+     const song = queue.songs[0];
+     this.emit("finishSong" /* FINISH_SONG */, queue, song);
+     await queue._taskQueue.queuing();
+@@ -2009,6 +2019,36 @@ var QueueManager = class extends GuildIdManager {
+    * @param error - error
+    */
+   async #handlePlayingError(queue, error) {
++    // Transient stream failure: YouTube hands out media URLs bound to a server-side
++    // experiment bucket; URLs in the bad bucket reject ffmpeg's open-ended range
++    // request with HTTP 403 before a single byte of audio is decoded. The bucket is
++    // re-rolled on every extraction, so dropping the cached URL and re-resolving is
++    // the recovery. Only retry when nothing actually played, so a mid-song failure
++    // still falls through to the normal skip-to-next behaviour.
++    const failing = queue.songs[0];
++    if (failing && error?.errorCode === "FFMPEG_EXITED" && !queue.stopped && (queue.currentTime ?? 0) < 5) {
++      if (queue._streamRetrySong !== failing) {
++        queue._streamRetrySong = failing;
++        queue._streamRetryCount = 0;
++      }
++      if (queue._streamRetryCount < 5) {
++        queue._streamRetryCount++;
++        this.debug(`[${queue.id}] Stream died before playback (attempt ${queue._streamRetryCount}/5), re-resolving: ${failing}`);
++        if (failing.stream?.playFromSource) failing.stream.url = void 0;
++        else if (failing.stream?.song?.stream) failing.stream.song.stream.url = void 0;
++        queue._beginTime = 0;
++        // Held across the replay so the dead stream's "finish" is ignored rather
++        // than tearing the queue down underneath us (see handleSongFinish).
++        queue._streamRetrying = true;
++        try {
++          await this.playSong(queue, false);
++        } finally {
++          queue._streamRetrying = false;
++        }
++        return;
++      }
++      this.debug(`[${queue.id}] Stream failed ${queue._streamRetryCount} times, giving up: ${failing}`);
++    }
+     const song = queue.songs.shift();
+     try {
+       error.name = "PlayingError";
