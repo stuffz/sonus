@@ -10,6 +10,20 @@ Hardens how the plugin invokes yt-dlp:
 - **`jsRuntimes: "node"`** — required for yt-dlp's EJS challenge solver to handle YouTube's sig/n token challenges. Without it, only storyboard images are returned (no audio/video formats). Do not remove.
 - **`cookies: process.env.YTDLP_COOKIES`** — optional cookies file for authenticated requests (age-restricted videos, higher rate limits). Set automatically by `src/lib/music/ytdlp.ts` when `data/cookies.txt` exists. Stale cookies cause UNPLAYABLE errors — re-export from an incognito window if that happens.
 - **`retries: 3`, `bufferSize: "16K"`, `httpChunkSize: "10M"`** — extraction/download robustness.
+- **`extractorArgs: "youtube:player_client=web_embedded"`** on `getStreamURL` only —
+  forces the `WEB_EMBEDDED_PLAYER` client. YouTube's `51946838` experiment (see the
+  distube patch below) escalated from ~50% of requests on 2026-08-15 to **95% on
+  2026-08-18**, at which point `ANDROID_VR` — the client yt-dlp picks by default —
+  is effectively dead: measured 0/12 successful streams, and 1 of 7 real songs
+  playable even with 5 retries. `WEB_EMBEDDED_PLAYER` is not subject to the same
+  restriction: 12/12 on the same video, and 7/7 songs on the first attempt.
+
+  Applied to `getStreamURL` but deliberately **not** to `resolve`, so title/duration
+  lookups keep using yt-dlp's default client list and stay robust for videos that
+  the embedded player won't serve. `format: "ba/ba*"` already falls back from opus
+  (251) to m4a (140) when the embedded client doesn't offer the former.
+
+  Remove when YouTube drops the experiment or yt-dlp gains SABR support.
 
 The `dargs` library converts the camelCase keys to kebab-case CLI flags (`jsRuntimes` → `--js-runtimes`).
 
