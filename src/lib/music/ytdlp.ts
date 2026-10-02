@@ -186,12 +186,40 @@ export async function searchYouTube(query: string): Promise<string | null> {
   });
 }
 
+/** How many search results to look at when picking a video. */
+const SEARCH_RESULT_COUNT = 5;
+
+/** Search results with this in the title are skipped (they often have intros, skits or long outros). */
+const SKIP_TITLE_PATTERN = /music\s*video/i;
+
+export interface SearchResult {
+  id: string;
+  title: string;
+}
+
 /**
- * Search YouTube and return the video URL (not the stream URL)
+ * Pick the first search result whose title doesn't match SKIP_TITLE_PATTERN.
+ * Falls back to the first result when every result matches, so a search never comes up empty.
+ */
+export function pickSearchResult(results: SearchResult[]): SearchResult | null {
+  if (results.length === 0) return null;
+  return results.find((r) => !SKIP_TITLE_PATTERN.test(r.title)) ?? results[0];
+}
+
+/**
+ * Search YouTube and return the video URL (not the stream URL).
+ * Skips results with "Music Video" in the title (see pickSearchResult).
  */
 export async function searchYouTubeVideoUrl(query: string): Promise<string | null> {
   return new Promise((resolve) => {
-    const args = [`ytsearch:${query}`, "--flat-playlist", "--print", "id", "--no-warnings", ...commonArgs()];
+    const args = [
+      `ytsearch${SEARCH_RESULT_COUNT}:${query}`,
+      "--flat-playlist",
+      "--print",
+      "%(id)s\t%(title)s",
+      "--no-warnings",
+      ...commonArgs(),
+    ];
 
     const proc = spawn(ytDlpPath, args, { timeout: 15000 });
     let stdout = "";
@@ -206,10 +234,25 @@ export async function searchYouTubeVideoUrl(query: string): Promise<string | nul
     });
 
     proc.on("close", (code) => {
-      if (code === 0 && stdout.trim()) {
-        const videoId = stdout.trim().split("\n")[0];
-        logger.info(`[YouTube] Search "${query}" -> ${videoId}`);
-        resolve(`https://www.youtube.com/watch?v=${videoId}`);
+      const results: SearchResult[] = stdout
+        .trim()
+        .split("\n")
+        .map((line) => {
+          const [id, ...title] = line.split("\t");
+          return { id: id.trim(), title: title.join("\t") };
+        })
+        .filter((r) => r.id);
+      const pick = code === 0 ? pickSearchResult(results) : null;
+
+      if (pick) {
+        const skipped = results.indexOf(pick);
+        if (skipped > 0) {
+          logger.info(`[YouTube] Skipped ${skipped} music video result(s) for "${query}"`);
+        } else if (SKIP_TITLE_PATTERN.test(pick.title)) {
+          logger.info(`[YouTube] Every result for "${query}" is a music video, using the first`);
+        }
+        logger.info(`[YouTube] Search "${query}" -> ${pick.id} (${pick.title})`);
+        resolve(`https://www.youtube.com/watch?v=${pick.id}`);
       } else {
         logger.warn(`[YouTube] Search "${query}" -> no result: ${stderr}`);
         resolve(null);
