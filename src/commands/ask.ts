@@ -1,5 +1,6 @@
 import { ChatInputCommandInteraction, SlashCommandBuilder, MessageFlags } from "discord.js";
-import { buildSystemPrompt, chatCompletion, chunkText } from "../lib/ai/llm";
+import { buildSystemPrompt, chatCompletion } from "../lib/ai/llm";
+import { chunkText } from "../lib/ai/chunk";
 import { linkifyDates } from "../lib/chat/timestamps";
 import { isFeatureEnabled } from "../lib/features";
 import { logger } from "../lib/logger";

@@ -1,5 +1,6 @@
 import { ChannelType, Collection, Message } from "discord.js";
-import { buildSystemPrompt, chunkText } from "../ai/llm";
+import { buildSystemPrompt } from "../ai/llm";
+import { chunkText } from "../ai/chunk";
 import { runAgent } from "../ai/agent";
 import type { ToolSpec } from "../ai/agent";
 import { webSearchTool } from "../ai/tools";
