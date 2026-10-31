@@ -1,14 +1,17 @@
-import type { DisTube, Song } from "distube";
+import type { DisTube } from "distube";
 import type { TextChannel, VoiceBasedChannel } from "discord.js";
 import { logger } from "../logger";
 import { getGuildSettings, setGuildSettings, getAllGuildSettings } from "../storage";
-import { fetchPlaylistEntries, searchYouTubeVideoUrl } from "./ytdlp";
+import { fetchPlaylistEntries, searchYouTubeMusicUrl } from "./ytdlp";
 import { isSpotifyPlaylistUrl, fetchSpotifyPlaylist } from "./spotify";
+import { formatTrack, type TrackInfo } from "./match";
+
+/** A YouTube playlist entry plays its URL; a Spotify one is searched for on YouTube when it comes up. */
+type BackgroundSong = { name: string; url: string } | { name: string; track: TrackInfo };
 
 // Background playlist state (per guild)
 export interface BackgroundState {
-  songs: Song[]; // Cached songs from playlist (url set for YouTube, name-only for Spotify search queries)
-  isSpotify: boolean; // Whether the source is a Spotify playlist
+  songs: BackgroundSong[]; // Cached songs from playlist
   playlistName: string; // Name of the playlist
   isActive: boolean; // Currently playing a background song
   playedIndices: Set<number>; // Indices of songs played in current cycle
@@ -33,37 +36,23 @@ export function getBackgroundState(guildId: string): BackgroundState | undefined
 }
 
 export async function cacheBackgroundPlaylist(guildId: string, url: string): Promise<{ name: string; count: number }> {
-  let songs: Song[];
+  let songs: BackgroundSong[];
   let title: string;
 
   if (isSpotifyPlaylistUrl(url)) {
-    // Spotify playlist: fetch track queries and store them as search queries
-    const { queries, title: playlistTitle } = await fetchSpotifyPlaylist(url);
+    const { tracks, title: playlistTitle } = await fetchSpotifyPlaylist(url);
     title = playlistTitle;
-    songs = queries.map(
-      (query) =>
-        ({
-          url: undefined,
-          name: query, // "Artist - Title" used as YouTube search query when playing
-        }) as unknown as Song,
-    );
+    songs = tracks.map((track) => ({ name: formatTrack(track), track }));
   } else {
     // YouTube/other: use yt-dlp to fetch playlist entries directly
     const result = await fetchPlaylistEntries(url);
     title = result.title;
-    songs = result.urls.map(
-      (videoUrl) =>
-        ({
-          url: videoUrl,
-          name: videoUrl,
-        }) as Song,
-    );
+    songs = result.urls.map((videoUrl) => ({ name: videoUrl, url: videoUrl }));
   }
 
   // Cache the songs
   backgroundStates.set(guildId, {
     songs,
-    isSpotify: isSpotifyPlaylistUrl(url),
     playlistName: title,
     isActive: false,
     playedIndices: new Set(),
@@ -117,20 +106,16 @@ export function clearBackgroundPlaylist(guildId: string): void {
 /**
  * Resolve a background song entry to a playable URL.
  * For YouTube entries, the URL is already set.
- * For Spotify entries, we search YouTube by "Artist - Title".
+ * For Spotify entries, we search YouTube Music for the track.
  */
-async function resolvePlayUrl(song: Song, isSpotify: boolean): Promise<string | null> {
-  const raw = song.url ?? song.name ?? null;
-  if (!raw) return null;
-
-  if (!isSpotify || raw.startsWith("http")) {
-    return raw;
+async function resolvePlayUrl(song: BackgroundSong): Promise<string | null> {
+  if ("url" in song) {
+    return song.url;
   }
 
-  // Spotify-sourced: search YouTube for "Title Artist song"
-  const resolved = await searchYouTubeVideoUrl(`${raw} song`);
+  const resolved = await searchYouTubeMusicUrl(song.track);
   if (!resolved) {
-    logger.warn(`[Background] YouTube search failed for Spotify track: "${raw}"`);
+    logger.warn(`[Background] YouTube search failed for Spotify track: "${song.name}"`);
     return null;
   }
   return resolved;
@@ -150,7 +135,7 @@ export async function getNextBackgroundSongUrl(guildId: string): Promise<string 
 
   // For single song, just return it
   if (state.songs.length === 1) {
-    return resolvePlayUrl(state.songs[0], state.isSpotify);
+    return resolvePlayUrl(state.songs[0]);
   }
 
   // Smart shuffle logic
@@ -179,7 +164,7 @@ export async function getNextBackgroundSongUrl(guildId: string): Promise<string 
   const song = state.songs[randomIndex];
   state.playedIndices.add(randomIndex);
 
-  return resolvePlayUrl(song, state.isSpotify);
+  return resolvePlayUrl(song);
 }
 
 export async function playRandomBackground(
@@ -204,7 +189,7 @@ export async function playRandomBackground(
     // For small playlists (2-3 songs): just avoid the last played song
     // For larger playlists: reset when 80% played (keeping at least 2 unplayed)
 
-    let song: Song;
+    let song: BackgroundSong;
 
     if (state.songs.length === 1) {
       song = state.songs[0];
@@ -241,7 +226,7 @@ export async function playRandomBackground(
     try {
       state.isActive = true;
       state.suppressAddMessage = true;
-      const playUrl = await resolvePlayUrl(song, state.isSpotify);
+      const playUrl = await resolvePlayUrl(song);
       if (!playUrl) {
         logger.warn(`[Background] Skipping unresolvable track (attempt ${attempt + 1}/${maxRetries}): ${song.name}`);
         state.isActive = false;

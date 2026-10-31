@@ -1,6 +1,7 @@
 import { logger } from "../logger";
 import { config } from "../config";
-import { searchYouTubeVideoUrl } from "./ytdlp";
+import { searchYouTubeMusicUrl } from "./ytdlp";
+import { formatTrack, type TrackInfo } from "./match";
 
 // Spotify URL patterns
 const SPOTIFY_TRACK_REGEX = /^https?:\/\/open\.spotify\.com\/track\/([a-zA-Z0-9]+)/;
@@ -102,15 +103,15 @@ interface SpotifyPlaylistResponse {
  * Fetch all tracks from a Spotify playlist.
  * Uses the full playlist endpoint with a user-scoped token.
  * Handles both old (.tracks/.track) and new (.items/.item) Spotify API formats.
- * Returns track search queries ("Artist - Title") and the playlist name.
+ * Returns the tracks and the playlist name.
  */
-export async function fetchSpotifyPlaylist(url: string): Promise<{ queries: string[]; title: string }> {
+export async function fetchSpotifyPlaylist(url: string): Promise<{ tracks: TrackInfo[]; title: string }> {
   const match = url.match(SPOTIFY_PLAYLIST_REGEX);
   if (!match) throw new Error("Invalid Spotify playlist URL");
   const playlistId = match[1];
 
   const token = await getSpotifyToken();
-  const queries: string[] = [];
+  const tracks: TrackInfo[] = [];
 
   // Fetch full playlist (metadata + first page of tracks)
   const response = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, {
@@ -141,8 +142,8 @@ export async function fetchSpotifyPlaylist(url: string): Promise<{ queries: stri
 
   // Process first page
   for (const item of trackList.items) {
-    const query = extractTrackQuery(item);
-    if (query) queries.push(query);
+    const track = extractTrack(item);
+    if (track) tracks.push(track);
   }
 
   // Paginate through remaining tracks
@@ -154,34 +155,32 @@ export async function fetchSpotifyPlaylist(url: string): Promise<{ queries: stri
     });
 
     if (!pageResponse.ok) {
-      logger.warn(`[Spotify] Pagination error (${pageResponse.status}), stopping at ${queries.length} tracks`);
+      logger.warn(`[Spotify] Pagination error (${pageResponse.status}), stopping at ${tracks.length} tracks`);
       break;
     }
 
     const page = (await pageResponse.json()) as SpotifyPaginatedList;
     for (const item of page.items) {
-      const query = extractTrackQuery(item);
-      if (query) queries.push(query);
+      const track = extractTrack(item);
+      if (track) tracks.push(track);
     }
     nextUrl = page.next;
   }
 
-  if (queries.length === 0) {
+  if (tracks.length === 0) {
     throw new Error("Playlist appears to be empty — no playable tracks found.");
   }
 
-  logger.info(`[Spotify] Fetched ${queries.length} tracks from playlist "${title}"`);
-  return { queries, title };
+  logger.info(`[Spotify] Fetched ${tracks.length} tracks from playlist "${title}"`);
+  return { tracks, title };
 }
 
-function extractTrackQuery(entry: SpotifyTrackItem): string | null {
+function extractTrack(entry: SpotifyTrackItem): TrackInfo | null {
   // New API format: track data under .item
   const track = entry.item ?? entry.track;
   if (!track) return null;
   if (track.is_local || entry.is_local) return null;
-  const artist = track.artists.map((a) => a.name).join(", ");
-  // Title first, then artist — matches YouTube's search ranking better
-  return `${track.name} ${artist}`;
+  return { title: track.name, artists: track.artists.map((a) => a.name) };
 }
 
 /**
@@ -282,10 +281,10 @@ export class SpotifyConversionError extends Error {
 }
 
 /**
- * Fetch a single Spotify track's metadata via the Spotify Web API and return
- * a "Title Artist" search query. Returns null for local tracks.
+ * Fetch a single Spotify track's title and artists via the Spotify Web API.
+ * Returns null for local tracks.
  */
-async function fetchSpotifyTrackQuery(spotifyUrl: string): Promise<string | null> {
+async function fetchSpotifyTrack(spotifyUrl: string): Promise<TrackInfo | null> {
   const match = spotifyUrl.match(SPOTIFY_TRACK_REGEX);
   if (!match) return null;
   const trackId = match[1];
@@ -306,8 +305,7 @@ async function fetchSpotifyTrackQuery(spotifyUrl: string): Promise<string | null
   };
 
   if (data.is_local) return null;
-  const artist = data.artists.map((a) => a.name).join(", ");
-  return `${data.name} ${artist}`;
+  return { title: data.name, artists: data.artists.map((a) => a.name) };
 }
 
 /**
@@ -318,23 +316,23 @@ async function fetchSpotifyTrackQuery(spotifyUrl: string): Promise<string | null
 async function convertSpotifyTrackViaApi(spotifyUrl: string): Promise<string | null> {
   if (!hasSpotifyCredentials()) return null;
 
-  let query: string | null;
+  let track: TrackInfo | null;
   try {
-    query = await fetchSpotifyTrackQuery(spotifyUrl);
+    track = await fetchSpotifyTrack(spotifyUrl);
   } catch (err) {
     logger.warn(`[Spotify] Web API track fetch failed: ${err instanceof Error ? err.message : err}`);
     return null;
   }
 
-  if (!query) return null;
+  if (!track) return null;
 
-  const youtubeUrl = await searchYouTubeVideoUrl(`${query} song`);
+  const youtubeUrl = await searchYouTubeMusicUrl(track);
   if (!youtubeUrl) {
-    logger.warn(`[Spotify] YouTube search failed for: "${query}"`);
+    logger.warn(`[Spotify] YouTube search failed for: "${formatTrack(track)}"`);
     return null;
   }
 
-  logger.info(`[Spotify] (API) Converted: ${query} -> ${youtubeUrl}`);
+  logger.info(`[Spotify] (API) Converted: ${formatTrack(track)} -> ${youtubeUrl}`);
   return youtubeUrl;
 }
 

@@ -44,7 +44,7 @@ For age-restricted videos and higher rate limits, export your YouTube cookies to
 
 ## Spotify (optional)
 
-- Track links work out of the box (converted to a YouTube search via [idonthavespotify](https://idonthavespotify.sjdonado.com/)).
+- Track links work out of the box (converted to a YouTube search via [idonthavespotify](https://idonthavespotify.sjdonado.com/)). With Spotify API credentials they are matched on YouTube Music first, and idonthavespotify is the fallback.
 - Playlists (used as background playlists) need Spotify API credentials: set them in `.env` (see `.env.example`), then run `npx tsx scripts/spotify-auth.ts`.
 
 ## Dashboard & API

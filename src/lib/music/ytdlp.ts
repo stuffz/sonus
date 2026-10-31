@@ -3,6 +3,14 @@ import path from "path";
 import { spawn } from "child_process";
 import { download as downloadYtDlp } from "@distube/yt-dlp";
 import { logger } from "../logger";
+import {
+  formatTrack,
+  isConfidentMatch,
+  pickBestMatch,
+  SKIP_TITLE_PATTERN,
+  type MatchCandidate,
+  type TrackInfo,
+} from "./match";
 
 // Optional cookies file for YouTube authentication
 const cookiesPath = path.join(process.cwd(), "data", "cookies.txt");
@@ -189,13 +197,7 @@ export async function searchYouTube(query: string): Promise<string | null> {
 /** How many search results to look at when picking a video. */
 const SEARCH_RESULT_COUNT = 5;
 
-/** Search results with this in the title are skipped (they often have intros, skits or long outros). */
-const SKIP_TITLE_PATTERN = /music\s*video/i;
-
-export interface SearchResult {
-  id: string;
-  title: string;
-}
+export type SearchResult = MatchCandidate;
 
 /**
  * Pick the first search result whose title doesn't match SKIP_TITLE_PATTERN.
@@ -206,17 +208,87 @@ export function pickSearchResult(results: SearchResult[]): SearchResult | null {
   return results.find((r) => !SKIP_TITLE_PATTERN.test(r.title)) ?? results[0];
 }
 
+const MUSIC_SEARCH_URL = "https://music.youtube.com/search";
+const MUSIC_SONGS_SECTION = "#songs";
+const OEMBED_URL = "https://www.youtube.com/oembed";
+const OEMBED_TIMEOUT_MS = 5000;
+
+/**
+ * Added to the regular YouTube search only, as /play has always done. The Songs section
+ * lists only songs anyway, and with the suffix it dropped RED's original "Let Go" from its
+ * top 5 in a live comparison.
+ */
+const SONG_SEARCH_SUFFIX = " song";
+
+/**
+ * Find a Spotify track on YouTube and return the video URL.
+ *
+ * Searches the Songs section of YouTube Music, which holds tracks rather than clickbait
+ * videos sharing a few keywords, but also covers and edits by other uploaders. Results
+ * are matched on artist and title (see pickBestMatch). When none is a confident match,
+ * because the track is missing from YouTube Music or listed under an artist name we can't
+ * match, a regular YouTube search is matched alongside them and the best of both wins.
+ */
+export async function searchYouTubeMusicUrl(track: TrackInfo): Promise<string | null> {
+  const query = `${track.title} ${track.artists.join(", ")}`;
+  const musicTarget = `${MUSIC_SEARCH_URL}?q=${encodeURIComponent(query)}${MUSIC_SONGS_SECTION}`;
+  const songs = await addUploaders(await runSearch(query, musicTarget, "YouTube Music"));
+  let match = pickBestMatch(track, songs);
+
+  if (!isConfidentMatch(match)) {
+    const videoQuery = `${query}${SONG_SEARCH_SUFFIX}`;
+    const videos = await runSearch(videoQuery, `ytsearch${SEARCH_RESULT_COUNT}:${videoQuery}`, "YouTube");
+    match = pickBestMatch(track, [...songs, ...videos]);
+  }
+
+  if (!match) {
+    return null;
+  }
+
+  const { id, title, uploader } = match.candidate;
+  const summary =
+    `"${formatTrack(track)}" -> ${id} (${title} by ${uploader ?? "unknown"}, ` +
+    `artist match: ${match.artistMatch}, title score ${match.titleScore.toFixed(2)})`;
+  if (isConfidentMatch(match)) {
+    logger.info(`[YouTube Music] Match ${summary}`);
+  } else {
+    logger.warn(`[YouTube Music] No confident match, using best guess ${summary}`);
+  }
+  return `https://www.youtube.com/watch?v=${id}`;
+}
+
 /**
  * Search YouTube and return the video URL (not the stream URL).
  * Skips results with "Music Video" in the title (see pickSearchResult).
  */
 export async function searchYouTubeVideoUrl(query: string): Promise<string | null> {
+  const results = await runSearch(query, `ytsearch${SEARCH_RESULT_COUNT}:${query}`, "YouTube");
+  const pick = pickSearchResult(results);
+  if (!pick) {
+    return null;
+  }
+
+  const skipped = results.indexOf(pick);
+  if (skipped > 0) {
+    logger.info(`[YouTube] Skipped ${skipped} music video result(s) for "${query}"`);
+  } else if (SKIP_TITLE_PATTERN.test(pick.title)) {
+    logger.info(`[YouTube] Every result for "${query}" is a music video, using the first`);
+  }
+  logger.info(`[YouTube] Search "${query}" -> ${pick.id} (${pick.title})`);
+  return `https://www.youtube.com/watch?v=${pick.id}`;
+}
+
+/** Returns the top results, or an empty list (with a warning logged) when the search fails. */
+function runSearch(query: string, target: string, label: string): Promise<SearchResult[]> {
   return new Promise((resolve) => {
     const args = [
-      `ytsearch${SEARCH_RESULT_COUNT}:${query}`,
+      target,
+      "--playlist-items",
+      `1:${SEARCH_RESULT_COUNT}`,
       "--flat-playlist",
       "--print",
-      "%(id)s\t%(title)s",
+      // Flat YouTube Music results have no channel; "|" makes yt-dlp print "" instead of "NA".
+      "%(id)s\t%(channel|)s\t%(title)s",
       "--no-warnings",
       ...commonArgs(),
     ];
@@ -238,32 +310,49 @@ export async function searchYouTubeVideoUrl(query: string): Promise<string | nul
         .trim()
         .split("\n")
         .map((line) => {
-          const [id, ...title] = line.split("\t");
-          return { id: id.trim(), title: title.join("\t") };
+          const [id, uploader = "", ...title] = line.split("\t");
+          return { id: id.trim(), title: title.join("\t"), uploader: uploader || null };
         })
         .filter((r) => r.id);
-      const pick = code === 0 ? pickSearchResult(results) : null;
 
-      if (pick) {
-        const skipped = results.indexOf(pick);
-        if (skipped > 0) {
-          logger.info(`[YouTube] Skipped ${skipped} music video result(s) for "${query}"`);
-        } else if (SKIP_TITLE_PATTERN.test(pick.title)) {
-          logger.info(`[YouTube] Every result for "${query}" is a music video, using the first`);
-        }
-        logger.info(`[YouTube] Search "${query}" -> ${pick.id} (${pick.title})`);
-        resolve(`https://www.youtube.com/watch?v=${pick.id}`);
+      if (code === 0 && results.length > 0) {
+        resolve(results);
       } else {
-        logger.warn(`[YouTube] Search "${query}" -> no result: ${stderr}`);
-        resolve(null);
+        logger.warn(`[${label}] Search "${query}" -> no result: ${stderr}`);
+        resolve([]);
       }
     });
 
     proc.on("error", (error) => {
-      logger.error(`YouTube search process error: ${error.message}`);
-      resolve(null);
+      logger.error(`[${label}] Search process error: ${error.message}`);
+      resolve([]);
     });
   });
+}
+
+/** Flat YouTube Music results have no uploader, which scoring needs to tell covers apart. */
+async function addUploaders(results: SearchResult[]): Promise<SearchResult[]> {
+  return Promise.all(results.map(async (r) => (r.uploader ? r : { ...r, uploader: await fetchUploader(r.id) })));
+}
+
+/** Uses oEmbed, a single cheap HTTP request, instead of a full yt-dlp extraction per result. */
+async function fetchUploader(videoId: string): Promise<string | null> {
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  try {
+    const response = await fetch(`${OEMBED_URL}?format=json&url=${encodeURIComponent(videoUrl)}`, {
+      signal: AbortSignal.timeout(OEMBED_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      logger.warn(`[YouTube Music] oEmbed returned ${response.status} for ${videoId}`);
+      return null;
+    }
+
+    const data = (await response.json()) as { author_name?: string };
+    return data.author_name ?? null;
+  } catch (err) {
+    logger.warn(`[YouTube Music] oEmbed lookup failed for ${videoId}: ${err instanceof Error ? err.message : err}`);
+    return null;
+  }
 }
 
 /**
