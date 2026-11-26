@@ -25,6 +25,14 @@ Hardens how the plugin invokes yt-dlp:
 
   Remove when YouTube drops the experiment or yt-dlp gains SABR support.
 
+- **Wait for `available_at`** in `getStreamURL`. With the embedded client, `ba/ba*`
+  lands on a muxed HLS format, and when the session gets a pre-roll ad YouTube 403s
+  every segment until the ad would have ended (3 to 5 s). ffmpeg's HLS demuxer skips a
+  403 segment instead of waiting, so it ran through ~50 segments and started the song
+  minutes in. yt-dlp records the time as `available_at` and its own downloader waits
+  for it; ffmpeg doesn't, so the plugin waits before handing over the URL. Covered by
+  `src/lib/music/stream-url.test.ts`.
+
 The `dargs` library converts the camelCase keys to kebab-case CLI flags (`jsRuntimes` → `--js-runtimes`).
 
 ## `distube+5.2.3.patch`
